@@ -1,9 +1,8 @@
 # SAC-D / Aquarius Telemetry Packet Parser
 
-This repository provides a Python-based parser and visualization tool for SAC-D / Aquarius satellite telemetry binary files.  
-It allows decoding, verifying, and plotting engineering telemetry directly from raw binary packets.
+This repository provides a Python-based parser and visualization tool for SAC-D / Aquarius satellite telemetry binary files. It allows decoding, verifying, and plotting engineering telemetry directly from raw binary packets.
 
-This code was developed as an exercise for the course “Lenguajes y Sistemas Operativos de Aplicación Espacial” (Master’s in Space Application Software Development – UNLAM).
+This code was developed as an exercise for the course "Programming Languages and Operating Systems for Space Applications" (Master’s in Space Application Software Development – UNLAM).
 
 ---
 
