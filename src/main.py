@@ -1,14 +1,10 @@
 import argparse
-from aquarius import AquariusPacket
-
-
+from sacd import SACDPacket
 
 def main():
     parser = argparse.ArgumentParser(description="Open a binary file with the satellite telemetry.")
     parser.add_argument("file_path", help="Path to the file to open")
-    parser.add_argument("-p", "--packet-size", type=int, default=4000, help="Expected packet size in bytes (default: 4000).")
     parser.add_argument("--check-crc", action="store_true", help="Enable CRC16 validation (disabled by default).")
-
 
     # Parse arguments
     args = parser.parse_args()
@@ -16,13 +12,18 @@ def main():
     with open(args.file_path, "rb") as file:
         data = file.read()
 
-    packet_parser = AquariusPacket(data, args.packet_size)
-
-    # Check that binary is not corrupt and get number of packets
-    # packets = packet_parser.get_packets(frame_parts)
+    packet_parser = SACDPacket(data)
     packets = packet_parser.get_packets(packets_with_sections=True, check_crc=args.check_crc)
 
-    print(packets[0])
+    # Order the packets in case they are not ordered
+    packet_parser.order_packets(packets)
+
+    # First show the voltage with dates
+    packet_parser.plot_telemetry_values('vBatAverage', packets, x_field='OBT')
+    # Later show the voltage with seconds
+    packet_parser.plot_telemetry_values('vBatAverage', packets, x_field='OBT_s')
+    # Later show the voltage with packet index
+    packet_parser.plot_telemetry_values('vBatAverage', packets)
 
 if __name__ == "__main__":
     main()
