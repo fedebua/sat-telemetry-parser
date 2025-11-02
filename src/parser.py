@@ -4,7 +4,21 @@ import matplotlib.dates as mdates
 
 
 class PacketParser:
-    """Generic parser for fixed-size binary telemetry packets."""
+    """
+    Generic parser for fixed-size binary telemetry packets.
+
+    This class provides common functionality for:
+      • Splitting raw binary data into packets.
+      • Mapping packet sections into named dictionary fields.
+      • Validating CRC values (if a CRC function is provided).
+      • Extracting calibrated telemetry values from packet data.
+      • Ordering packets based on a subclass-defined key.
+      • Plotting telemetry values over time or packet index.
+
+    Subclasses (e.g. SACDPacket) must define:
+      • `_fields`: a dictionary describing telemetry fields.
+      • Optionally, `get_ordering_key(packet)` to support ordering.
+    """
 
     def __init__(
         self,
@@ -15,6 +29,29 @@ class PacketParser:
         sections: dict = None,
         crc_function=None,
     ):
+        """
+        Initialize a packet parser.
+
+        Parameters
+        ----------
+        data : bytes
+            Raw binary data from a telemetry file.
+        packet_size : int
+            Number of bytes per packet.
+        verbose : bool, optional
+            If True, show progress information during CRC validation.
+        endianness : str, optional
+            Byte order for integer conversion ('big' or 'little').
+        sections : dict, optional
+            Mapping of section names to byte lengths.
+        crc_function : callable, optional
+            Function to compute CRC from packet bytes.
+
+        Raises
+        ------
+        RuntimeError
+            If file size is not a multiple of packet_size.
+        """
         self.data = data
         self.packet_size = packet_size
         self.verbose = verbose
@@ -33,7 +70,28 @@ class PacketParser:
     # Packet Extraction and CRC Validation
     # -------------------------------------------------------------------------
     def get_packets(self, packets_with_sections: bool, check_crc: bool):
-        """Split binary data into packets, optionally validating CRC."""
+        """
+        Split binary data into packets, optionally validating CRC.
+
+        Parameters
+        ----------
+        packets_with_sections : bool
+            If True, split each packet into named sections.
+            If False, returns a list of the binary packets unstructured
+        check_crc : bool
+            If True, validate CRC values using crc_function.
+
+        Returns
+        -------
+        list
+            A list of packets as either bytes (if unstructured) or dictionaries
+            mapping section names to bytes.
+
+        Raises
+        ------
+        RuntimeError
+            If CRC checking is requested without defined sections.
+        """
         if check_crc and (not packets_with_sections or not self.sections):
             raise RuntimeError("Cannot compute CRC without sections defined.")
 
@@ -43,7 +101,6 @@ class PacketParser:
             for i in range(0, self.size, self.packet_size)
         ]
 
-        # Return raw packets if not structured
         if not packets_with_sections or not self.sections:
             return packets
 
@@ -51,7 +108,7 @@ class PacketParser:
         if sum(self.sections.values()) != self.packet_size:
             raise RuntimeError("Section layout does not match packet size.")
 
-        # Split each packet into named sections
+        # Split packets into section dictionaries
         structured_packets = [
             {
                 name: packet[offset:offset + size]
@@ -64,14 +121,13 @@ class PacketParser:
             for packet in packets
         ]
 
-        # Optional CRC check
         if check_crc:
             self._validate_crc(structured_packets)
 
         return structured_packets
 
     def _section_offsets(self):
-        """Compute start offsets for each section from section sizes."""
+        """Compute start byte offsets for each defined section."""
         offsets, pos = [], 0
         for size in self.sections.values():
             offsets.append(pos)
@@ -79,7 +135,18 @@ class PacketParser:
         return offsets
 
     def _validate_crc(self, packets):
-        """Validate CRC using provided crc_function, optionally showing progress if verbose=True."""
+        """
+        Validate CRC for all packets using the provided crc_function.
+
+        Prints progress updates if verbose=True.
+
+        Raises
+        ------
+        NotImplementedError
+            If no CRC function or CRC section is defined.
+        RuntimeError
+            If any packet fails CRC validation.
+        """
         if not callable(self.crc_function):
             raise NotImplementedError("CRC function not defined.")
         if "CRC" not in self.sections:
@@ -89,24 +156,21 @@ class PacketParser:
         show_progress = getattr(self, "verbose", False)
 
         for i, pkt in enumerate(packets, start=1):
-            # Progress indicator (only if verbose)
             if show_progress:
                 percent = (i / total) * 100
                 print(f"\rChecking CRC of packet {i}/{total} ({percent:.1f}%)", end="", flush=True)
 
-            # Compute CRC
             data_for_crc = b"".join(pkt[name] for name in self.sections if name != "CRC")
             expected_crc = int.from_bytes(pkt["CRC"], self.endianness)
             computed_crc = self.crc_function(data_for_crc)
 
             if computed_crc != expected_crc:
                 if show_progress:
-                    print()  # newline before the error
+                    print()
                 raise RuntimeError(
                     f"CRC mismatch in packet {i}: expected 0x{expected_crc:04X}, got 0x{computed_crc:04X}"
                 )
 
-        # Final newline and message (only if verbose)
         if show_progress:
             print("\rCRC check complete. All packets verified successfully.")
 
@@ -114,11 +178,28 @@ class PacketParser:
     # Telemetry Extraction
     # -------------------------------------------------------------------------
     def _require_fields(self):
+        """Ensure that the subclass defines a `_fields` dictionary."""
         if not hasattr(self, "_fields"):
             raise RuntimeError(f"{self.__class__.__name__} must define '_fields' to use telemetry functions.")
 
     def get_telemetry_value_by_name(self, field_name: str, packet: dict):
-        """Extract a single telemetry field value from one packet."""
+        """
+        Extract one telemetry field value from a packet.
+
+        Applies scaling and offset defined in `_fields`.
+
+        Parameters
+        ----------
+        field_name : str
+            Name of the field to extract.
+        packet : dict
+            One structured packet (dict of sections to bytes).
+
+        Returns
+        -------
+        float
+            The calibrated field value.
+        """
         self._require_fields()
 
         if field_name not in self._fields:
@@ -146,7 +227,23 @@ class PacketParser:
         return value * field.get("k", 1.0) + field.get("offset", 0.0)
 
     def get_all_telemetry_values_by_name(self, field_name: str, packets: list, return_unit: bool = False):
-        """Extract a field's value from all packets, optionally returning its unit."""
+        """
+        Extract values of a telemetry field across multiple packets.
+
+        Parameters
+        ----------
+        field_name : str
+            Name of the telemetry field.
+        packets : list
+            List of structured packet dictionaries.
+        return_unit : bool, optional
+            If True, also return the field's physical unit.
+
+        Returns
+        -------
+        list or tuple
+            List of numeric values, optionally paired with the unit string.
+        """
         self._require_fields()
 
         if return_unit and "unit" not in self._fields[field_name]:
@@ -159,7 +256,19 @@ class PacketParser:
     # Packet Ordering
     # -------------------------------------------------------------------------
     def order_packets(self, packets: list):
-        """Order packets using subclass-defined key function."""
+        """
+        Order packets using a subclass-defined key function.
+
+        Returns
+        -------
+        list
+            Ordered list of packet dictionaries.
+
+        Raises
+        ------
+        RuntimeError
+            If the subclass does not implement `get_ordering_key(packet)`.
+        """
         if not hasattr(self, "get_ordering_key") or not callable(getattr(self, "get_ordering_key")):
             raise RuntimeError(f"{self.__class__.__name__} must define a 'get_ordering_key(packet)' method.")
         return sorted(packets, key=self.get_ordering_key)
@@ -168,7 +277,11 @@ class PacketParser:
     # Plotting Utilities
     # -------------------------------------------------------------------------
     def plot_telemetry_values(self, field_name: str, packets: list, x_field: str = None):
-        """Plot telemetry field values against another field or packet index."""
+        """
+        Plot a telemetry field versus another field or packet index.
+
+        Automatically handles GPS time conversion and unit labels.
+        """
         self._require_fields()
 
         if not packets:
@@ -176,10 +289,8 @@ class PacketParser:
         if field_name not in self._fields:
             raise ValueError(f"Invalid field '{field_name}'.")
 
-        # Y-axis data
         y_values, y_unit = self.get_all_telemetry_values_by_name(field_name, packets, return_unit=True)
 
-        # X-axis data
         if x_field:
             if x_field not in self._fields:
                 raise ValueError(f"Invalid x_field '{x_field}'.")
@@ -187,17 +298,14 @@ class PacketParser:
         else:
             x_values, x_unit = list(range(len(packets))), None
 
-        # GPS time conversion
         is_time_axis = False
         if x_field and isinstance(x_unit, str) and "gps" in x_unit.lower():
             x_values = self.convert_gps_to_datetime(x_values)
             is_time_axis = True
 
-        # Plot
         plt.figure(figsize=(10, 5))
         plt.plot(x_values, y_values, marker="o", linestyle="-", label=field_name)
 
-        # Axis labels with units
         xlabel = x_field or "Packet index"
         ylabel = field_name
         if is_time_axis:
@@ -225,7 +333,19 @@ class PacketParser:
     # -------------------------------------------------------------------------
     @staticmethod
     def convert_gps_to_datetime(gps_seconds_list):
-        """Convert GPS seconds since 1980-01-06 to UTC datetime list."""
+        """
+        Convert GPS seconds since 1980-01-06 to UTC datetimes.
+
+        Parameters
+        ----------
+        gps_seconds_list : list
+            List of timestamps in GPS seconds.
+
+        Returns
+        -------
+        list
+            List of `datetime` objects in UTC.
+        """
         gps_epoch = datetime(1980, 1, 6)
-        leap_seconds = 19  # current offset
+        leap_seconds = 19
         return [gps_epoch + timedelta(seconds=s - leap_seconds) for s in gps_seconds_list]

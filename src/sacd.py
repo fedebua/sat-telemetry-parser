@@ -1,7 +1,13 @@
 from parser import PacketParser
 
+
 class SACDPacket(PacketParser):
-    """SAC-D / Aquarius satellite packet parser."""
+    """
+    Specialized parser for SAC-D / Aquarius satellite telemetry.
+
+    Defines frame structure, telemetry fields, CRC algorithm, and
+    packet ordering rules based on On-Board Time (OBT).
+    """
 
     frame_parts = {
         "IDS": 3, "FRAME#": 4, "HK_ID": 1, "CDH": 272,
@@ -18,7 +24,6 @@ class SACDPacket(PacketParser):
         "OBT_s": {"section": "CDH", "position": 92, "size": 4, "unit": "Seconds"},
     }
 
-    # Precompute CRC16/BUYPASS table
     _POLY = 0x8005
     _CRC16_BUYPASS_TABLE = []
     for byte in range(256):
@@ -32,7 +37,21 @@ class SACDPacket(PacketParser):
 
     @staticmethod
     def crc16_buypass(data: bytes, init_crc: int = 0x0000) -> int:
-        """Compute CRC-16/BUYPASS (poly=0x8005, init=0x0000)."""
+        """
+        Compute CRC-16/BUYPASS checksum.
+
+        Parameters
+        ----------
+        data : bytes
+            Input byte sequence.
+        init_crc : int, optional
+            Initial CRC register value.
+
+        Returns
+        -------
+        int
+            The computed CRC-16 value.
+        """
         crc = init_crc
         for byte in data:
             idx = ((crc >> 8) ^ byte) & 0xFF
@@ -40,6 +59,18 @@ class SACDPacket(PacketParser):
         return crc
 
     def __init__(self, data: bytes, packet_size: int = 4000, verbose: bool = False):
+        """
+        Initialize a SAC-D packet parser.
+
+        Parameters
+        ----------
+        data : bytes
+            Binary telemetry stream.
+        packet_size : int, optional
+            Packet length in bytes.
+        verbose : bool, optional
+            Show CRC progress during validation.
+        """
         super().__init__(
             data,
             packet_size,
@@ -50,5 +81,12 @@ class SACDPacket(PacketParser):
         )
 
     def get_ordering_key(self, packet: dict):
-        """Use OBT as the sorting key."""
+        """
+        Define packet sorting key.
+
+        Returns
+        -------
+        int or float
+            The On-Board Time value used for ordering.
+        """
         return self.get_telemetry_value_by_name("OBT", packet)
