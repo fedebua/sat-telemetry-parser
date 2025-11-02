@@ -24,15 +24,16 @@ This code was developed as an exercise for the course “Lenguajes y Sistemas Op
 ## Repository Structure
 
 ```
-
+.
+├── images/ # Processed images used in README.md
 ├── src/
-│   ├── parser.py        # Generic packet parser class (CRC, plotting, telemetry utilities)
-│   ├── sacd.py          # SAC-D/Aquarius mission-specific subclass
-│   ├── main.py          # Command-line interface
-│   ├── __init__.py      # Python init file
-├── requirements.txt     # Project dependencies
-└── README.md            # Project documentation
-└── .gitignore           # Git ignore of generated files
+│ ├── init.py # Marks src as a Python package
+│ ├── parser.py # Generic packet parser class (CRC, plotting, telemetry utilities)
+│ ├── sacd.py # SAC-D/Aquarius mission-specific subclass
+│ └── main.py # Command-line interface
+├── .gitignore # Git ignore rules for generated files
+├── README.md # Project documentation
+└── requirements.txt # Project dependencies
 
 ````
 
